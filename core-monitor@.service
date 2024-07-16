@@ -1,0 +1,10 @@
+[Unit]
+Description=Core Monitor (%i)
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/core-monitor.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
