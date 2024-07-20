@@ -6,7 +6,9 @@ A bash script that monitors your Cardano core node and activates a standby core 
 
 The script is meant to be run on the standby core. It will connect to your Prometheus endpoint to determine the main core block height. That height is compared to the height on the standby core. If the main core starts lagging behind and crosses the set threshold the standby core will be activated. The standby core will also be activated when the block height is not reported **and** cncli reports an error when connecting to the main core.
 
-When the main core is back online, the block height is below threshold again and cncli reports a successful connection, the standby core will be restarted in non-producing mode.
+When the main core is back online and the block height is below threshold again, or cncli reports a successful connection, the standby core will be restarted in non-producing mode.
+
+An optional tunnel check pings some IP's on the other side of the tunnel. If one IP replies the tunnel is considered up. Disable the tunnel check by setting `tunnelCheckPerform` to false.
 
 ## Installation
 
@@ -20,6 +22,8 @@ prometheusQueryUri=https://prom.mypool.tld:443/api/v1
 prometheusRemoteProducerAlias=main-core
 remoteProducerAddress=core.mypool.tld
 remoteProducerPort=3001
+tunnelCheckPerform=true
+tunnelCheckIPs=(10.0.0.1 10.0.0.2)
 connectivityCheckIP=8.8.8.8
 blockHeightDiffThreshold=10 #choose wisely
 secondsSleepMainLoop=30

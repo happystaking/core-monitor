@@ -7,6 +7,8 @@ prometheusQueryUri=
 remoteCorePrometheusAlias=
 remoteCoreAddress=
 remoteCorePort=
+tunnelCheckPerform=false
+tunnelCheckIPs=()
 connectivityCheckIP=8.8.8.8
 blockHeightDiffThreshold=
 secondsSleepMainLoop=30
@@ -16,6 +18,16 @@ network=${1:-mainnet}
 localIsForging=false
 dependencies=(cardano-cli cncli curl jq)
 
+# Dependency checks
+for binary in ${dependencies[@]}
+do
+    if ! which $binary &>/dev/null;
+    then
+        echo "Can't find $binary; please try to (re)install $binary or edit your \$PATH"
+        exit 1
+    fi
+done
+
 # Function definitions
 function getLocalBlockHeight {
     block=$(cardano-cli query tip --socket-path $cardanoNodeSocket --${network} | jq -r ".block")
@@ -23,7 +35,7 @@ function getLocalBlockHeight {
 }
 
 function getRemoteBlockHeight {
-    block=$(curl -ks "${prometheusQueryUri}"?query=cardano_node_metrics_blockNum_int | jq -r ".data.result[] | select(.metric.alias == \"${remoteCorePrometheusAlias}\") | .value[1]")
+    block=$(curl --connect-timeout 8 -ks "${prometheusQueryUri}"?query=cardano_node_metrics_blockNum_int | jq -r ".data.result[] | select(.metric.alias == \"${remoteCorePrometheusAlias}\") | .value[1]")
     if [ "x$block" != "x" ]; then echo $block; else echo 0; fi
 }
 
@@ -40,6 +52,16 @@ function getConnectivityState {
     if [ "$?" == "0" ]; then echo "ok"; else echo "error"; fi
 }
 
+function getTunnelState {
+    if [ "$tunnelCheckPerform" == "false" ]; then echo "ok1" && return; fi
+    for hostIP in "${tunnelCheckIPs[@]}"
+    do
+        ping -c 2 -w 4 $hostIP &> /dev/null
+        if [ $? -eq 0 ]; then echo "ok" && return; fi
+    done
+    echo "error"
+}
+
 function activateLocalCore {
     echo "stage: 3; sending SIGHUP to cardano-node to enable block producing mode"
     kill -s HUP $(pidof cardano-node)
@@ -52,16 +74,6 @@ function deactivateLocalCore {
     journalctl -r -n 9 -u core-monitor@${network}.service | mail -s "Backup core deactivated" $notifyEmailAddress
 }
 
-# Dependency checks
-for binary in ${dependencies[@]}
-do
-    if ! which $binary &>/dev/null;
-    then
-        echo "Can't find $binary; please try to (re)install $binary or edit your \$PATH"
-        exit 1
-    fi
-done
-
 # Main loop
 while :
 do
@@ -69,7 +81,6 @@ do
     localBlockHeight=$(getLocalBlockHeight)
     remoteCncliState=$(getRemoteCncliState)
     remoteBlockHeight=$(getRemoteBlockHeight)
-    connectivityState=$(getConnectivityState)
     blockHeightDiff=$(getBlockHeightDiff $localBlockHeight $remoteBlockHeight)
 
     echo "stage: 1; local height: $localBlockHeight; remote height: $remoteBlockHeight; diff: $blockHeightDiff"
@@ -77,12 +88,15 @@ do
     # The difference between the local block height and block height reported by remote Prometheus is above the threshold (remote core is lagging behind).
     if [[ $blockHeightDiff -gt $blockHeightDiffThreshold ]];
     then
-        echo "stage: 2; threshold: $blockHeightDiffThreshold; diff: $blockHeightDiff; remote cncli: $remoteCncliState; connectivity: $connectivityState"
+        tunnelState=$(getTunnelState)
+        connectivityState=$(getConnectivityState)
+
+        echo "stage: 2; threshold: $blockHeightDiffThreshold; diff: $blockHeightDiff; remote cncli: $remoteCncliState; connectivity: $connectivityState; tunnel: $tunnelState"
 
         # Activate the local core only if we have connectivity, if we're not forging blocks already and when the remote block height is:
         # not reported (0) and cncli reports an error, or when the remote block height is reported (not 0) and above the threshold.
         # Keep in mind that when the remote height is reported and over threshold we have two producers running and forking could potentially happen.
-        if [[ "$connectivityState" == "ok" && "$localIsForging" == false && ( ( "$remoteCncliState" == "error" && "$remoteBlockHeight" == "0" ) || "$remoteBlockHeight" != "0" )]];
+        if [[ "$connectivityState" == "ok" && "$localIsForging" == false && ( ( "$remoteCncliState" == "error" && "$remoteBlockHeight" == "0" && "$tunnelState" == "ok" ) || "$remoteBlockHeight" != "0" )]];
         then
             localIsForging=true
             activateLocalCore
@@ -99,8 +113,8 @@ do
         fi
     fi
 
-    # Disable the local core if the height diff is 0 or above, below threshold again, cncli reports success and we're forging blocks locally.
-    if [[ $blockHeightDiff -ge 0 && $blockHeightDiff -le $blockHeightDiffThreshold && "$remoteCncliState" == "ok" && "$localIsForging" == true ]];
+    # Disable the local core if the height diff is 0 or above, below threshold again or cncli reports success and we're forging blocks locally.
+    if [[ ( $blockHeightDiff -ge 0 && $blockHeightDiff -le $blockHeightDiffThreshold || "$remoteCncliState" == "ok" ) && "$localIsForging" == true ]];
     then
         localIsForging=false
         deactivateLocalCore
