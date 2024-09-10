@@ -8,7 +8,7 @@ The script is meant to be run on the standby core. It will connect to your Prome
 
 When the main core is back online and the block height is below threshold again, or cncli reports a successful connection, the standby core will be restarted in non-producing mode.
 
-An optional tunnel check pings some IP's on the other side of the tunnel. If one IP replies the tunnel is considered up. Disable the tunnel check by setting `tunnelCheckPerform` to false.
+An optional tunnel check pings some IP's on the other side of the tunnel. If one IP replies the tunnel is considered up. Disable the tunnel check by setting `tunnelCheckPerform` to false. Use the `remoteCheckAddress` and `remoteCheckPort` variables to check if your remote host is up or down.
 
 ## Installation
 
@@ -22,6 +22,8 @@ prometheusQueryUri=https://prom.mypool.tld:443/api/v1
 prometheusRemoteProducerAlias=main-core
 remoteProducerAddress=core.mypool.tld
 remoteProducerPort=3001
+remoteCheckAddress=1.2.3.4
+remoteCheckPort=22
 tunnelCheckPerform=true
 tunnelCheckIPs=(10.0.0.1 10.0.0.2)
 connectivityCheckIP=8.8.8.8

@@ -7,6 +7,8 @@ prometheusQueryUri=
 remoteCorePrometheusAlias=
 remoteCoreAddress=
 remoteCorePort=
+remoteCheckAddress=
+remoteCheckPort=
 tunnelCheckPerform=false
 tunnelCheckIPs=()
 connectivityCheckIP=8.8.8.8
@@ -62,25 +64,29 @@ function getTunnelState {
     echo "error"
 }
 
+function getRemoteCheckState {
+    echo `nmap -Pn $remoteCheckAddress -p $remoteCheckPort | awk 'FNR == 6 {print $2}'`
+}
+
 function activateLocalCore {
     echo "stage: 3; sending SIGHUP to cardano-node to enable block producing mode"
     kill -s HUP $(pidof cardano-node)
-    journalctl -r -n 9 -u core-monitor@${network}.service | mail -s "Backup core activated" $notifyEmailAddress
+    journalctl -r -n 9 -u core-monitor@${network}.service | mail -s "Standby core activated" $notifyEmailAddress
 }
 
 function deactivateLocalCore {
     echo "stage: 2; restarting cardano-node in non-producing mode"
     systemctl restart cardano-core@mainnet
-    journalctl -r -n 9 -u core-monitor@${network}.service | mail -s "Backup core deactivated" $notifyEmailAddress
+    journalctl -r -n 9 -u core-monitor@${network}.service | mail -s "Standby core deactivated" $notifyEmailAddress
 }
 
 # Main loop
 while :
 do
-    secondsNow=$(date +%s)
     localBlockHeight=$(getLocalBlockHeight)
     remoteCncliState=$(getRemoteCncliState)
     remoteBlockHeight=$(getRemoteBlockHeight)
+    remoteCheckState=$(getRemoteCheckState)
     blockHeightDiff=$(getBlockHeightDiff $localBlockHeight $remoteBlockHeight)
 
     echo "stage: 1; local height: $localBlockHeight; remote height: $remoteBlockHeight; diff: $blockHeightDiff"
@@ -91,25 +97,26 @@ do
         tunnelState=$(getTunnelState)
         connectivityState=$(getConnectivityState)
 
-        echo "stage: 2; threshold: $blockHeightDiffThreshold; diff: $blockHeightDiff; remote cncli: $remoteCncliState; connectivity: $connectivityState; tunnel: $tunnelState"
+        echo "stage: 2; threshold: $blockHeightDiffThreshold; diff: $blockHeightDiff; remote cncli: $remoteCncliState; connectivity: $connectivityState; tunnel: $tunnelState; check state: $remoteCheckState"
 
-        # Activate the local core only if we have connectivity, if we're not forging blocks already and when the remote block height is:
-        # not reported (0) and cncli reports an error, or when the remote block height is reported (not 0) and above the threshold.
-        # Keep in mind that when the remote height is reported and over threshold we have two producers running and forking could potentially happen.
-        if [[ "$connectivityState" == "ok" && "$localIsForging" == false && ( ( "$remoteCncliState" == "error" && "$remoteBlockHeight" == "0" && "$tunnelState" == "ok" ) || "$remoteBlockHeight" != "0" )]];
+        # Activate the local core only under the prerequisite that: we have connectivity, we're not forging blocks already and:
+        #  1) the remote block height is not reported (0), tunnel is ok, but cncli (through tunnel) reports an error, or
+        #  2) the remote block height is not reported (0) and the remote check port is not open (host down), or
+        #  3) the remote block height is reported (not 0), but is above the set threshold. ATTN: in this case you have two producers running and forking could potentially happen!
+        if [[ "$connectivityState" == "ok" && "$localIsForging" == false && ( ( "$tunnelState" == "ok" && "$remoteCncliState" == "error" && "$remoteBlockHeight" == "0" ) ||  ( "$remoteBlockHeight" == "0" && "$remoteCheckState" != "open" ) || "$remoteBlockHeight" != "0" )]];
         then
             localIsForging=true
             activateLocalCore
 
-            echo "stage: 3; activated: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff"
+            echo "stage: 3; activated: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; check state: $remoteCheckState"
         # Just logging that the local BP is currently running.
         elif [[ "$localIsForging" == true ]];
         then
-            echo "stage: 3; running: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff"
+            echo "stage: 3; running: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; check state: $remoteCheckState"
         # Error reported by cncli because we have no internet connectivity.
         elif [[ "$connectivityState" == "error" ]];
         then
-            echo "stage: 3; skipping: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff"
+            echo "stage: 3; skipping: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; check state: $remoteCheckState"
         fi
     fi
 
@@ -119,7 +126,7 @@ do
         localIsForging=false
         deactivateLocalCore
 
-        echo "stage: 2; deactivated: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff"
+        echo "stage: 2; deactivated: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; check state: $remoteCheckState"
     fi
 
     sleep $secondsSleepMainLoop
