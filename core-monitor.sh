@@ -86,7 +86,6 @@ do
     localBlockHeight=$(getLocalBlockHeight)
     remoteCncliState=$(getRemoteCncliState)
     remoteBlockHeight=$(getRemoteBlockHeight)
-    remoteCheckState=$(getRemoteCheckState)
     blockHeightDiff=$(getBlockHeightDiff $localBlockHeight $remoteBlockHeight)
 
     echo "stage: 1; local height: $localBlockHeight; remote height: $remoteBlockHeight; diff: $blockHeightDiff"
@@ -96,6 +95,7 @@ do
     then
         tunnelState=$(getTunnelState)
         connectivityState=$(getConnectivityState)
+        remoteCheckState=$(getRemoteCheckState)
 
         echo "stage: 2; threshold: $blockHeightDiffThreshold; diff: $blockHeightDiff; remote cncli: $remoteCncliState; connectivity: $connectivityState; tunnel: $tunnelState; check state: $remoteCheckState"
 
@@ -108,15 +108,19 @@ do
             localIsForging=true
             activateLocalCore
 
-            echo "stage: 3; activated: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; check state: $remoteCheckState"
+            echo "stage: 3; activating: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; remote height: $remoteBlockHeight; check state: $remoteCheckState"
         # Just logging that the local BP is currently running.
         elif [[ "$localIsForging" == true ]];
         then
-            echo "stage: 3; running: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; check state: $remoteCheckState"
+            echo "stage: 3; running: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; remote height: $remoteBlockHeight; check state: $remoteCheckState"
         # Error reported by cncli because we have no internet connectivity.
         elif [[ "$connectivityState" == "error" ]];
         then
-            echo "stage: 3; skipping: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; check state: $remoteCheckState"
+            echo "stage: 3; skipping: local core activation; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff remote height: $remoteBlockHeight; check state: $remoteCheckState"
+        # Log that the local BP is now running because the remote host is down.
+        elif [[ "$remoteCheckState" != "open" && "$remoteBlockHeight" == "0" ]];
+        then
+            echo "stage: 3; running: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; remote height: $remoteBlockHeight; check state: $remoteCheckState"
         fi
     fi
 
