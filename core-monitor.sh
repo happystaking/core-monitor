@@ -105,10 +105,10 @@ do
         #  3) the remote block height is reported (not 0), but is above the set threshold. ATTN: in this case you have two producers running and forking could potentially happen!
         if [[ "$connectivityState" == "ok" && "$localIsForging" == false && ( ( "$tunnelState" == "ok" && "$remoteCncliState" == "error" && "$remoteBlockHeight" == "0" ) ||  ( "$remoteBlockHeight" == "0" && "$remoteCheckState" != "open" ) || "$remoteBlockHeight" != "0" )]];
         then
+            echo "stage: 3; activating: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; remote height: $remoteBlockHeight; check state: $remoteCheckState"
+
             localIsForging=true
             activateLocalCore
-
-            echo "stage: 3; activating: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; remote height: $remoteBlockHeight; check state: $remoteCheckState"
         # Just logging that the local BP is currently running.
         elif [[ "$localIsForging" == true ]];
         then
@@ -127,10 +127,10 @@ do
     # Disable the local core if the height diff is 0 or above, below threshold again or cncli reports success and we're forging blocks locally.
     if [[ ( $blockHeightDiff -ge 0 && $blockHeightDiff -le $blockHeightDiffThreshold || "$remoteCncliState" == "ok" ) && "$localIsForging" == true ]];
     then
+        echo "stage: 2; deactivated: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; check state: $remoteCheckState"
+
         localIsForging=false
         deactivateLocalCore
-
-        echo "stage: 2; deactivated: local core; remote cncli: $remoteCncliState; forging: $localIsForging; connectivity: $connectivityState; diff: $blockHeightDiff; check state: $remoteCheckState"
     fi
 
     sleep $secondsSleepMainLoop
