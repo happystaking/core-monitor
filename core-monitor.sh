@@ -14,6 +14,7 @@ tunnelCheckIPs=()
 connectivityCheckIP=8.8.8.8
 blockHeightDiffThreshold=
 secondsSleepMainLoop=30
+localCoreKeysPath=
 
 # Script variables
 network=${1:-mainnet}
@@ -29,6 +30,13 @@ do
         exit 1
     fi
 done
+
+# Sanity checks
+if [[ ! -s "$localCoreKeysPath"/kes.skey ||  ! -s "$localCoreKeysPath"/node.cert ||  ! -s "$localCoreKeysPath"/vrf.skey ||  ! -w "$localCoreKeysPath" ]];
+then
+    echo "Error: the files kes.skey, node.cert and vrf.skey must all be present in $localCoreKeysPath and this script must have write permissions on that directory."
+    exit 1;
+fi
 
 # Function definitions
 function getLocalBlockHeight {
@@ -69,14 +77,16 @@ function getRemoteCheckState {
 }
 
 function activateLocalCore {
-    echo "stage: 3; sending SIGHUP to cardano-node to enable block producing mode"
+    echo "stage: 3; setting keys and sending SIGHUP to cardano-node to enable block producing mode"
+    for f in kes.skey node.cert vrf.skey; do mv "$localCoreKeysPath/${f}.standby" "$localCoreKeysPath/${f}"; done
     kill -s HUP $(pidof cardano-node)
     journalctl -r -n 9 -u core-monitor@${network}.service | mail -s "Standby core activated" $notifyEmailAddress
 }
 
 function deactivateLocalCore {
-    echo "stage: 2; restarting cardano-node in non-producing mode"
-    systemctl restart cardano-core@mainnet
+    echo "stage: 2; unsetting keys and resetting cardano-node into non-producing mode"
+    for f in kes.skey node.cert vrf.skey; do mv "$localCoreKeysPath/$f" "$localCoreKeysPath/${f}.standby"; done
+    kill -s HUP $(pidof cardano-node)
     journalctl -r -n 9 -u core-monitor@${network}.service | mail -s "Standby core deactivated" $notifyEmailAddress
 }
 

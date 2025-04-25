@@ -2,7 +2,7 @@
 Description=Core Monitor (%i)
 
 [Service]
-Type=exec
+Type=simple
 ExecStart=/usr/local/bin/core-monitor.sh
 Restart=on-failure
 
