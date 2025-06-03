@@ -92,11 +92,22 @@ function activateLocalCore {
 
 function deactivateLocalCore {
     echo "stage: 2; unsetting keys and resetting cardano-node into non-producing mode"
-    for f in kes.skey node.cert vrf.skey; do (if [ -f "${localCoreKeysPath}/${f}" ]; then mv "${localCoreKeysPath}/${f}" "${localCoreKeysPath}/${f}.standby"; fi) done
+    for f in kes.skey node.cert vrf.skey; do
+        if [ -f "${localCoreKeysPath}/${f}" ]; then
+            mv "${localCoreKeysPath}/${f}" "${localCoreKeysPath}/${f}.standby";
+        fi
+    done
+
     kill -s HUP $(pidof cardano-node)
     journalctl -r -n 9 -u core-monitor@${network}.service | mail -s "Standby core deactivated" $notifyEmailAddress
+    sleep 30
+
     echo "stage: 2; restoring keys"
-    for f in kes.skey node.cert vrf.skey; do (if [ -f "${localCoreKeysPath}/${f}.standby" ]; then mv "${localCoreKeysPath}/${f}.standby" "${localCoreKeysPath}/${f}"; fi) done
+    for f in kes.skey node.cert vrf.skey; do
+        if [ -f "${localCoreKeysPath}/${f}.standby" ]; then
+            mv "${localCoreKeysPath}/${f}.standby" "${localCoreKeysPath}/${f}";
+        fi
+    done
 }
 
 # Main loop
