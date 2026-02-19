@@ -48,7 +48,7 @@ function getLocalBlockHeight {
 }
 
 function getRemoteBlockHeight {
-    block=$(curl --connect-timeout 8 -ks "${prometheusQueryUri}"?query=cardano_node_metrics_blockNum_int | jq -r ".data.result[] | select(.metric.alias == \"${remoteCorePrometheusAlias}\") | .value[1]")
+    block=$(curl --fail --connect-timeout 8 --max-time 20 -ks "${prometheusQueryUri}"?query=cardano_node_metrics_blockNum_int | jq -r ".data.result[] | select(.metric.alias == \"${remoteCorePrometheusAlias}\") | .value[1]")
     if [ "x$block" != "x" ]; then echo $block; else echo 0; fi
 }
 
@@ -57,12 +57,18 @@ function getBlockHeightDiff { # args: localBlockHeight remoteBlockHeight
 }
 
 function getRemoteCoreState {
-    tip=$(cardano-cli ping -jtqc 1 -h $remoteCoreAddress -p $remoteCorePort 2>/dev/null)
-    if [ "$?" == "0" ]; then echo "$tip" | jq -r ".tip[0]"; else echo "error"; fi
+    for try in 1 2 3;
+    do
+        tip=$(cardano-cli ping -jtqc 1 -h $remoteCoreAddress -p $remoteCorePort 2>/dev/null)
+        if [ "$?" == "0" ]; then echo "$tip" | jq -er ".tip[0] // 0" && return; fi
+
+        sleep 3
+    done
+    echo "error"
 }
 
 function getRemoteCoreOnTip { #args: remoteCoreState localBlockHeight
-    if [[ "$1" != "error" && `echo "${1}" | jq -r ".blockNo"` -ge $(( $2 - $blockHeightDiffThreshold )) ]]; then echo "true"; else echo "false"; fi
+    if [[ "$1" != "error" && `echo "${1}" | jq -er ".blockNo"` -ge $(( $2 - $blockHeightDiffThreshold )) ]]; then echo "true"; else echo "false"; fi
 }
 
 function getConnectivityState {
@@ -81,7 +87,8 @@ function getTunnelState {
 }
 
 function getRemoteCheckState {
-    echo `nmap -Pn $remoteCheckAddress -p $remoteCheckPort | awk 'FNR == 6 {print $2}'`
+    nc -z -w5 $remoteCheckAddress $remoteCheckPort &>/dev/null
+    if [ $? -eq 0 ]; then echo "open"; else echo "closed"; fi
 }
 
 function activateLocalCore {
@@ -129,7 +136,8 @@ do
         remoteCoreOnTip=$(getRemoteCoreOnTip "$remoteCoreState" $localBlockHeight)
         connectivityState=$(getConnectivityState)
 
-        echo "stage: 2; connectivity: $connectivityState; cardano-cli remote core on tip: $remoteCoreOnTip; tunnel: $tunnelState; check port: $remoteCheckState"
+        if [[ "$remoteCoreState" != "error" ]]; then remoteCoreHeight=$(echo "$remoteCoreState" | jq -er '.blockNo // 0'); else remoteCoreHeight=0; fi
+        echo "stage: 2; connectivity: $connectivityState; cardano-cli remote core height: $remoteCoreHeight; cardano-cli remote core on tip: $remoteCoreOnTip; tunnel: $tunnelState; check port: $remoteCheckState"
 
         # Activate the local core only under the condition that: we have connectivity, we're not forging blocks already, remote core is not on tip and:
         #  1) the remote block height is not reported (0) and the tunnel is ok, or
