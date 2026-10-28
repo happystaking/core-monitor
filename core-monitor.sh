@@ -59,8 +59,8 @@ function getBlockHeightDiff { # args: localBlockHeight remoteBlockHeight
 function getRemoteCoreState {
     for try in 1 2 3;
     do
-        tip=$(cardano-cli ping -jtqc 1 -h $remoteCoreAddress -p $remoteCorePort 2>/dev/null)
-        if [ "$?" == "0" ]; then echo "$tip" | jq -er ".tip[0] // 0" && return; fi
+        tip=$(cardano-cli ping --mode tip -jqc 1 ${remoteCoreAddress}:${remoteCorePort} 2>/dev/null)
+        if [ "$?" == "0" ]; then echo "$tip" && return; fi
 
         sleep 3
     done
